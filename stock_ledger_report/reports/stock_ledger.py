@@ -163,8 +163,8 @@ class ReportStockLedger(models.AbstractModel):
         return _('Stock Ledger')
 
     @api.model
-    def _get_dates_period(self, options, date_from, date_to, mode, period_type=None):
-        res = super()._get_dates_period(options, date_from, date_to, mode, period_type=period_type)
+    def _get_dates_period(self, options, date_from, date_to, mode, period_type=None, strict_range=False):
+        res = super()._get_dates_period(options, date_from, date_to, mode, period_type=period_type, strict_range=strict_range)
         if res['period_type'] == 'today':
             res['string'] = 'Today'
         return res
