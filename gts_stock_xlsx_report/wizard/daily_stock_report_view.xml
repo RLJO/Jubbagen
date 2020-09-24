@@ -34,11 +34,15 @@
                             <field name="warehouse_id" domain="[('company_id', '=', company_id)]"
                                    options="{'no_create': True, 'no_open': True}"/>
                         </group>
-                        <group
-                               attrs="{'invisible': [('report_by', '!=', 'location_wise')]}">
+                        <group >
                             <field name="location_ids" widget="many2many_tags"
                                    options="{'no_create': True, 'no_open': True}"
-                                   domain="[('company_id', '=', company_id),('usage', '=', 'internal')]"/>
+                                   domain="[('company_id', '=', company_id),('usage', '=', 'internal')]"
+                                   attrs="{'invisible': [('report_by', 'not in', ('location_wise'))]}"/>
+                            <field name="location_id"
+                                   options="{'no_create': True, 'no_open': True}"
+                                   domain="[('company_id', '=', company_id),('usage', '=', 'internal')]"
+                                   attrs="{'invisible': [('report_by', 'not in', ('detailed_report'))]}"/>
                         </group>
                     </group>
                     <group string="Product" colspan="4" attrs="{'invisible': [('report_by', '!=', 'detailed_report')]}">

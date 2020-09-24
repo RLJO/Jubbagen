@@ -34,6 +34,7 @@ class daily_stock_report(models.TransientModel):
                                      'warehouse_id', 'Warehouses')
     location_ids = fields.Many2many('stock.location', 'location_rel_report_wiz', 'wiz_id',
                                     'location_id', 'Locations')
+    location_id = fields.Many2one('stock.location', 'Location')
     product_ids = fields.Many2many('product.product', 'product_rel_report_wiz', 'wiz_id',
                                    'product_id', 'Products')
     product_id = fields.Many2one('product.product', 'Product')
@@ -84,6 +85,8 @@ class daily_stock_report(models.TransientModel):
                 locations += location_obj.search([
                     ('usage', '=', 'internal'), '|', ('company_id', '=', self.company_id.id),
                     ('company_id', '=', False)], order='level asc')
+        if self.report_by == 'detailed_report' and self.location_id:
+            locations = self.location_id
         return locations
 
     def get_child_locations(self, location):
