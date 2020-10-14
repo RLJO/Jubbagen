@@ -113,7 +113,7 @@ class ReportStockLedger(models.AbstractModel):
     def _init_filter_location(self, options, previous_options=None):
         if self.filter_location is None:
             return
-
+        view_locations = []
         if previous_options and previous_options.get('location'):
             location_map = dict((opt['id'], opt['selected']) for opt in previous_options['location'] if
                                 opt['id'] != 'divider' and 'selected' in opt)
@@ -121,9 +121,10 @@ class ReportStockLedger(models.AbstractModel):
             location_map = {}
 
         options['location'] = []
-        view_locations = self.env['stock.warehouse'].browse(
-            [warehouse['id'] for warehouse in previous_options.get('warehouse') if warehouse['selected']]).mapped(
-            'view_location_id').ids
+        if previous_options and previous_options.get('warehouse'):
+            view_locations = self.env['stock.warehouse'].browse(
+                [warehouse['id'] for warehouse in previous_options.get('warehouse') if warehouse['selected']]).mapped(
+                'view_location_id').ids
         if view_locations:
             locations = self.env['stock.location'].search(
                 [('company_id', 'in', self.env.user.company_ids.ids or [self.env.company.id]),
