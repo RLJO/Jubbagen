@@ -347,7 +347,7 @@ class ReportStockLedger(models.AbstractModel):
                 # 'trust': partner.trust,
                 'unfoldable': True,
                 'unfolded': 'product_' + str(product_id.id) in options.get('unfolded_lines') or unfold_all,
-                'colspan': 5,
+                'colspan': 6,
             })
             for location_line in lines:  # line == sm grouped by location
                 moves = self.env['stock.move'].browse(location_line.get('sm_ids'))
@@ -367,7 +367,7 @@ class ReportStockLedger(models.AbstractModel):
                     'unfoldable': True,
                     'unfolded': 'location_' + str(current_location.id) + '_product_' + str(
                         product_id.id) in options.get('unfolded_lines') or unfold_all,
-                    'colspan': 5,
+                    'colspan': 6,
                 })
                 # everything is [0] because of some weird add bug WTF
                 for move in moves:
@@ -401,7 +401,7 @@ class ReportStockLedger(models.AbstractModel):
                     'level': 3,
                     # 'trust': partner.trust,
                     'unfoldable': False,
-                    'colspan': 5,
+                    'colspan': 6,
                 })
             result_lines.append({
                 'id': 'product_' + str(product_id.id) + '_total',
@@ -412,7 +412,7 @@ class ReportStockLedger(models.AbstractModel):
                 'level': 2,
                 # 'trust': partner.trust,
                 'unfoldable': False,
-                'colspan': 5,
+                'colspan': 6,
             })
         return result_lines
 
