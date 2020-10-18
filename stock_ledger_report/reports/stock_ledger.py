@@ -12,6 +12,7 @@ class ReportStockLedger(models.AbstractModel):
 
     filter_date = {'mode': 'range', 'filter': 'today'}
     filter_warehouse = True
+    filter_location = True
     filter_product = True
     filter_unfold_all = False
 
@@ -24,8 +25,9 @@ class ReportStockLedger(models.AbstractModel):
         options['product_ids'] = previous_options and previous_options.get('product_ids') or []
         options['product_categories'] = previous_options and previous_options.get('product_categories') or []
         selected_product_ids = [int(partner) for partner in options['product_ids']]
-        selected_product = selected_product_ids and self.env['product.product'].browse(selected_product_ids) or self.env[
-            'product.product']
+        selected_product = selected_product_ids and self.env['product.product'].browse(selected_product_ids) or \
+                           self.env[
+                               'product.product']
         options['selected_product_ids'] = selected_product.mapped('name')
         selected_product_category_ids = [int(category) for category in options['product_categories']]
         selected_partner_categories = selected_product_category_ids and self.env['product.category'].browse(
@@ -55,32 +57,37 @@ class ReportStockLedger(models.AbstractModel):
             return
 
         if previous_options and previous_options.get('warehouse'):
-            warehouse_map = dict((opt['id'], opt['selected']) for opt in previous_options['warehouse'] if opt['id'] != 'divider' and 'selected' in opt)
+            warehouse_map = dict((opt['id'], opt['selected']) for opt in previous_options['warehouse'] if
+                                 opt['id'] != 'divider' and 'selected' in opt)
         else:
             warehouse_map = {}
 
         options['warehouse'] = []
-
         for j in self._get_filter_warehouse():
+            locations = self.env['stock.location'].search([('location_id', '=', j.view_location_id.id)]).ids
             options['warehouse'].append({
                 'id': j.id,
                 'name': j.name,
                 'code': j.code,
-                'location_id': j.lot_stock_id.id,
+                'location_id': locations,
                 'selected': warehouse_map.get(j.id, False)
             })
 
     @api.model
     def _get_options_warehouse(self, options):
         return [
-            warehouse for warehouse in options.get('warehouse', []) if not warehouse['id'] in ('divider', 'group') and warehouse['selected']
+            warehouse for warehouse in options.get('warehouse', []) if
+            not warehouse['id'] in ('divider', 'group') and warehouse['selected']
         ]
 
     @api.model
     def _get_options_warehouse_domain(self, options):
         # Make sure to return an empty array when nothing selected to handle archived journals.
         selected_warehouse = self._get_options_warehouse(options)
-        location_ids = [j['location_id'] for j in selected_warehouse]
+        location_ids = []
+        for warehouse in selected_warehouse:
+            for location in warehouse['location_id']:
+                location_ids.append(location)
         if options.get('dest', False):
             base = selected_warehouse and [('location_dest_id', 'in', location_ids)] or []
             for location in location_ids:
@@ -95,6 +102,74 @@ class ReportStockLedger(models.AbstractModel):
     def _get_options_warehouse_ids(self, options):
         selected_warehouse = self._get_options_warehouse(options)
         return [j['id'] for j in selected_warehouse]
+
+    @api.model
+    def _get_filter_location(self):
+        return self.env['stock.location'].search([
+            ('company_id', 'in', self.env.user.company_ids.ids or [self.env.company.id])
+        ], order="company_id, name")
+
+    @api.model
+    def _init_filter_location(self, options, previous_options=None):
+        if self.filter_location is None:
+            return
+        view_locations = []
+        if previous_options and previous_options.get('location'):
+            location_map = dict((opt['id'], opt['selected']) for opt in previous_options['location'] if
+                                opt['id'] != 'divider' and 'selected' in opt)
+        else:
+            location_map = {}
+
+        options['location'] = []
+        if previous_options and previous_options.get('warehouse'):
+            view_locations = self.env['stock.warehouse'].browse(
+                [warehouse['id'] for warehouse in previous_options.get('warehouse') if warehouse['selected']]).mapped(
+                'view_location_id').ids
+        if view_locations:
+            locations = self.env['stock.location'].search(
+                [('company_id', 'in', self.env.user.company_ids.ids or [self.env.company.id]),
+                 ('location_id', 'in', view_locations)], order="company_id, name", )
+            for j in locations:
+                options['location'].append({
+                    'id': j.id,
+                    'name': j.name,
+                    'selected': location_map.get(j.id, False)
+                })
+
+        else:
+            for j in self._get_filter_location():
+                options['location'].append({
+                    'id': j.id,
+                    'name': j.name,
+                    'selected': location_map.get(j.id, False)
+                })
+
+    @api.model
+    def _get_options_location(self, options):
+        return [
+            location for location in options.get('location', []) if
+            not location['id'] in ('divider', 'group') and location['selected']
+        ]
+
+    @api.model
+    def _get_options_location_domain(self, options):
+        # Make sure to return an empty array when nothing selected to handle archived journals.
+        selected_locations = self._get_options_location(options)
+        location_ids = [j['id'] for j in selected_locations]
+        if options.get('dest', False):
+            base = selected_locations and [('location_dest_id', 'in', location_ids)] or []
+            for location in location_ids:
+                expression.OR([base, ('location_dest_id', 'child_of', location)])
+        else:
+            base = selected_locations and [('location_id', 'in', location_ids)] or []
+            for location in location_ids:
+                expression.OR([base, ('location_id', 'child_of', location)])
+        return base
+
+    @api.model
+    def _get_options_location_ids(self, options):
+        selected_location = self._get_options_location(options)
+        return [j['id'] for j in selected_location]
 
     @api.model
     def _get_options_current_period(self, options):
@@ -146,17 +221,18 @@ class ReportStockLedger(models.AbstractModel):
     def _get_options_domain(self, options):
         domain = [('state', '=', 'done')]
         domain += self._get_options_warehouse_domain(options)
+        domain += self._get_options_location_domain(options)
         domain += self._get_options_product_domain(options)
         domain += self._get_options_date_domain(options)
         return domain
 
     def _get_templates(self):
         return {
-                'main_template': 'account_reports.main_template',
-                'main_table_header_template': 'account_reports.main_table_header',
-                'line_template': 'account_reports.line_template',
-                'footnotes_template': 'account_reports.footnotes_template',
-                'search_template': 'stock_ledger_report.search_template',
+            'main_template': 'account_reports.main_template',
+            'main_table_header_template': 'account_reports.main_table_header',
+            'line_template': 'stock_ledger_report.line_template_stock_ledger_report',
+            'footnotes_template': 'account_reports.footnotes_template',
+            'search_template': 'stock_ledger_report.search_template',
         }
 
     def _get_report_name(self):
@@ -164,7 +240,8 @@ class ReportStockLedger(models.AbstractModel):
 
     @api.model
     def _get_dates_period(self, options, date_from, date_to, mode, period_type=None, strict_range=False):
-        res = super()._get_dates_period(options, date_from, date_to, mode, period_type=period_type, strict_range=strict_range)
+        res = super()._get_dates_period(options, date_from, date_to, mode, period_type=period_type,
+                                        strict_range=strict_range)
         if res['period_type'] == 'today':
             res['string'] = 'Today'
         return res
@@ -270,7 +347,7 @@ class ReportStockLedger(models.AbstractModel):
                 # 'trust': partner.trust,
                 'unfoldable': True,
                 'unfolded': 'product_' + str(product_id.id) in options.get('unfolded_lines') or unfold_all,
-                'colspan': 5,
+                'colspan': 6,
             })
             for location_line in lines:  # line == sm grouped by location
                 moves = self.env['stock.move'].browse(location_line.get('sm_ids'))
@@ -288,14 +365,17 @@ class ReportStockLedger(models.AbstractModel):
                     'level': 3,
                     # 'trust': partner.trust,
                     'unfoldable': True,
-                    'unfolded': 'location_' + str(current_location.id) + '_product_' + str(product_id.id) in options.get('unfolded_lines') or unfold_all,
-                    'colspan': 5,
+                    'unfolded': 'location_' + str(current_location.id) + '_product_' + str(
+                        product_id.id) in options.get('unfolded_lines') or unfold_all,
+                    'colspan': 6,
                 })
                 # everything is [0] because of some weird add bug WTF
                 for move in moves:
-                    qty = move[0].quantity_done * -1 if move[0].location_dest_id.id != current_location.id else move[0].quantity_done
+                    qty = move[0].quantity_done * -1 if move[0].location_dest_id.id != current_location.id else move[
+                        0].quantity_done
                     columns = [
                         {'name': move[0].picking_type_id.name},
+                        {'name': move[0].picking_id.partner_id.name},
                         {'name': move[0].date},
                         {'name': move[0].reference},
                         {'name': move[0].name},
@@ -304,9 +384,10 @@ class ReportStockLedger(models.AbstractModel):
                     ]
                     result_lines.append({
                         'id': move[0].id,
+                        'caret_options': 'stock.move',
                         'name': move[0].name,  # format_date(self.env, aml['date']),
                         'parent_id': 'location_' + str(current_location.id) + '_product_' + str(product_id.id),
-                        #'class': 'date',
+                        # 'class': 'date',
                         'columns': columns,
                         # 'caret_options': caret_type,
                         'level': 4,
@@ -320,7 +401,7 @@ class ReportStockLedger(models.AbstractModel):
                     'level': 3,
                     # 'trust': partner.trust,
                     'unfoldable': False,
-                    'colspan': 5,
+                    'colspan': 6,
                 })
             result_lines.append({
                 'id': 'product_' + str(product_id.id) + '_total',
@@ -331,18 +412,60 @@ class ReportStockLedger(models.AbstractModel):
                 'level': 2,
                 # 'trust': partner.trust,
                 'unfoldable': False,
-                'colspan': 5,
+                'colspan': 6,
             })
         return result_lines
+
+    def open_document(self, options, params=None):
+        if not params:
+            params = {}
+        ctx = self.env.context.copy()
+        ctx.pop('id', '')
+
+        # Decode params
+        model = params.get('model', 'stock.move')
+        res_id = params.get('id')
+        document = params.get('object', 'stock.move')
+
+        # Redirection data
+        target = self._resolve_caret_option_document(model, res_id, document)
+        view_name = self._resolve_caret_option_view(target)
+        module = 'stock'
+        if '.' in view_name:
+            module, view_name = view_name.split('.')
+
+        # Redirect
+        view_id = self.env['ir.model.data'].get_object_reference(module, view_name)[1]
+        return {
+            'type': 'ir.actions.act_window',
+            'view_mode': 'form',
+            'views': [(view_id, 'form')],
+            'res_model': document,
+            'view_id': view_id,
+            'res_id': target.id,
+            'context': ctx,
+        }
+
+    @api.model
+    def _resolve_caret_option_view(self, target):
+        """Retrieve the target view name of the caret option.
+
+        :param target:  The target record of the redirection.
+        :return: The target view name as a string.
+        """
+        if target._name == 'stock.move':
+            return 'stock.view_move_form'
 
     def _get_columns_name(self, options):
         columns = [
             {},
             {'name': _("Type"), 'class': 'string', 'style': 'white-space:nowrap;'},
+            {'name': _("Contact"), 'class': 'string', 'style': 'white-space:nowrap;'},
             {'name': _("Date"), 'class': 'number', 'style': 'white-space:nowrap;'},
             {'name': _("Num"), 'class': 'number', 'style': 'white-space:nowrap;'},
             {'name': _("Memo"), 'class': 'string', 'style': 'white-space:nowrap;'},
             {'name': _("Qty"), 'class': 'number', 'style': 'white-space:nowrap;'},
-            {'name': _("U/M"), 'class': 'string', 'style': 'white-space:nowrap;'}
+            {'name': _("U/M"), 'class': 'string', 'style': 'white-space:nowrap;'},
+
         ]
         return columns
