@@ -1,7 +1,8 @@
 from odoo import fields, models, api, _
-from odoo.tools import DEFAULT_SERVER_DATE_FORMAT
+from odoo.tools import DEFAULT_SERVER_DATE_FORMAT, DEFAULT_SERVER_DATETIME_FORMAT
 from odoo.tools.float_utils import float_is_zero
 from odoo.exceptions import ValidationError
+import pytz
 
 import os
 import time
@@ -114,14 +115,21 @@ class daily_stock_report(models.TransientModel):
             date_str = "move.date::DATE>=%s and move.date::DATE<=%s"
             where.append(tuple([from_date]))
             where.append(tuple([to_date]))
+            print("where1 ++++++++++++++++++++++++", where)
         elif from_date:
             date_str = "move.date::DATE>=%s"
             date_values = [from_date]
+            print("+++++++++++++++++++++===date_str", date_str)
+            print("+++++++++++++++++++++===date_values", date_values)
         elif to_date:
             date_str = "move.date::DATE<=%s"
             date_values = [to_date]
+            print("+++++++++++++++++++++===date_str1", date_str)
+            print("+++++++++++++++++++++===date_values1", date_values)
+
         if date_values:
             where.append(tuple(date_values))
+            print("where ++++++++++++++++++++++++", where)
 
         self._cr.execute(
             '''select sum(product_qty), product_id, product_uom 
@@ -139,6 +147,7 @@ class daily_stock_report(models.TransientModel):
             ''' and picking_type.code = 'incoming'
             group by product_id, product_uom''', tuple(where))
         results_incoming_purchases = self._cr.fetchall()
+        # print("results_incoming_purchases", results_incoming_purchases)
 
         self._cr.execute(
             '''select sum(product_qty), product_id, product_uom 
@@ -156,6 +165,7 @@ class daily_stock_report(models.TransientModel):
             ''' and picking_type.code = 'incoming'
             group by product_id, product_uom''', tuple(where))
         results_incoming_returns = self._cr.fetchall()
+        # print("result incomming return", results_incoming_returns)
 
         self._cr.execute(
             '''select sum(product_qty), product_id, product_uom 
@@ -172,6 +182,7 @@ class daily_stock_report(models.TransientModel):
             ''' and picking_type.code = 'outgoing'
             group by product_id, product_uom''', tuple(where))
         results_outgoing = self._cr.fetchall()
+        # print("results_outgoing", results_outgoing)
 
         self._cr.execute(
             '''select sum(product_qty), product_id, product_uom 
@@ -188,6 +199,7 @@ class daily_stock_report(models.TransientModel):
             ''' and picking_type.code = 'internal'
             group by product_id, product_uom''', tuple(where))
         results_internal_in = self._cr.fetchall()
+        # print("results_internal_in", results_internal_in)
 
         self._cr.execute(
             '''select sum(product_qty), product_id, product_uom 
@@ -204,6 +216,7 @@ class daily_stock_report(models.TransientModel):
             ''' and picking_type.code = 'internal'
             group by product_id, product_uom''', tuple(where))
         results_internal_out = self._cr.fetchall()
+        # print("results_internal_out", results_internal_out)
 
         self._cr.execute(
             '''select sum(product_qty), product_id, product_uom 
@@ -218,6 +231,7 @@ class daily_stock_report(models.TransientModel):
             '''
             group by product_id, product_uom''', tuple(where))
         results_adjustment_in = self._cr.fetchall()
+        # print("results_adjustment_in", results_adjustment_in)
 
         self._cr.execute(
             '''select sum(product_qty), product_id, product_uom 
@@ -230,6 +244,7 @@ class daily_stock_report(models.TransientModel):
             '''  + (date_str and 'and ' + date_str + ' ' or '') + \
             ''' group by product_id, product_uom''', tuple(where))
         results_adjustment_out = self._cr.fetchall()
+        # print("results_adjustment_out", results_adjustment_out)
 
         self._cr.execute(
             '''select sum(product_qty), product_id, product_uom 
@@ -244,6 +259,7 @@ class daily_stock_report(models.TransientModel):
             '''
             group by product_id, product_uom''', tuple(where))
         results_production_in = self._cr.fetchall()
+        # print("results_production_in", results_production_in)
 
         self._cr.execute(
             '''select sum(product_qty), product_id, product_uom 
@@ -256,6 +272,7 @@ class daily_stock_report(models.TransientModel):
             ''' + (date_str and 'and ' + date_str + ' ' or '') + \
             ''' group by product_id, product_uom''', tuple(where))
         results_production_out = self._cr.fetchall()
+        # print("results_production_out", results_production_out)
 
         incoming_purchases, incoming_returns, outgoing, internal, adjustment, production = 0, 0, 0, 0, 0, 0
         # Count the quantities
@@ -405,9 +422,14 @@ class daily_stock_report(models.TransientModel):
             worksheet.write(row, col + 10, 'Valuation', style_header2)
         row += 1
         if self.from_date:
-            previous_date = datetime.strftime((datetime.strptime(
-                str(self.from_date), DEFAULT_SERVER_DATE_FORMAT) - timedelta(days=1)),
-                                              DEFAULT_SERVER_DATE_FORMAT)
+            print("from date +++++++++++++++++++++", self.from_date)
+            my_datetime = datetime(self.from_date.year, self.from_date.month, self.from_date.day)
+            # correct_date_time = my_datetime + timedelta(hours=2, minutes=30)
+            previous_date = datetime.strptime(
+                str(my_datetime), DEFAULT_SERVER_DATETIME_FORMAT) - timedelta(days=1)
+            # correct_date_time = my_datetime + timedelta(hours=2, minutes=30)
+            # previous_date = self.get_localised_date(previous_date)
+            print("previous updae", previous_date)
         for product in products.sorted(lambda p: p.name):
             processed_loc_ids = []
             if self.report_by == 'location_wise':
@@ -498,7 +520,114 @@ class daily_stock_report(models.TransientModel):
             'views': [[view_id, 'form']],
         }
 
+    def get_opening_stock(self, moves_domain, all_locations, previous_date):
+        moves_domain = [('company_id', '=', self.company_id.id), ('date', '<=', previous_date),
+                        ('product_id', '=', self.product_id.id), ('state', '=', 'done')]
+        stocks = self.env['stock.move'].search(moves_domain, order='date asc')
+        print('stocks...', stocks)
+        print('moves_domain...', moves_domain)
+        qty_on_hand = 0
+        for move in stocks:
+            col = 0
+            if self.warehouse_id and move.warehouse_id and self.warehouse_id.id != move.warehouse_id.id:
+                print('skiping Warehouse..id, reference...', move.id, move.reference)
+                continue
+            if move.location_id.id not in all_locations.ids and move.location_dest_id.id not in all_locations.ids:
+                print('skiping Location..id, reference...', move.id, move.reference)
+                continue
+            col_count = 3
+            quantity = move.quantity_done
+            print('move.reference quantity....', move.id, move.reference, quantity)
+            print('move.location....', move.location_id, move.location_dest_id)
+            # Purchase
+            if move.location_id.id not in all_locations.ids and move.location_dest_id.id in \
+                    all_locations.ids and move.picking_id and not move.inventory_id and \
+                    not move.origin_returned_move_id and move.picking_id.picking_type_code == 'incoming':
+                col_count = 4
+                qty_on_hand += move.quantity_done
+                print('Purchase++++++++++')
+            elif move.location_id.id in all_locations.ids and move.location_dest_id.id not in \
+                    all_locations.ids and move.picking_id and not move.inventory_id and \
+                    move.origin_returned_move_id and \
+                    move.origin_returned_move_id.picking_id.picking_type_code == 'incoming' \
+                    and move.picking_id.picking_type_code == 'outgoing':
+                col_count = 5
+                qty_on_hand -= move.quantity_done
+                print('Purchase Return++++++++++')
+            # Sales
+            elif move.location_id.id in all_locations.ids and move.location_dest_id.id not in \
+                    all_locations.ids and move.picking_id and not move.inventory_id and \
+                    not move.origin_returned_move_id and move.picking_id.picking_type_code == 'outgoing':
+                col_count = 6
+                qty_on_hand -= move.quantity_done
+                # print('Sales++++++++++')
+            elif move.location_id.id not in all_locations.ids and move.location_dest_id.id in \
+                    all_locations.ids and move.picking_id and not move.inventory_id and \
+                    move.origin_returned_move_id and \
+                    move.origin_returned_move_id.picking_id.picking_type_code == 'outgoing' \
+                    and move.picking_id.picking_type_code == 'incoming':
+                col_count = 7
+                qty_on_hand += move.quantity_done
+                # print('Sale Return++++++++++')
+            # Internal Transfer
+            elif self.warehouse_id and move.location_id.id not in all_locations.ids and move.location_dest_id.id in \
+                    all_locations.ids and move.picking_id and not move.inventory_id and \
+                    move.picking_id.picking_type_code == 'internal':
+                col_count = 8
+                quantity = move.quantity_done
+                qty_on_hand += move.quantity_done
+                # print('Internal 1 ++++++++++')
+            elif self.warehouse_id and move.location_id.id in all_locations.ids and move.location_dest_id.id not in \
+                    all_locations.ids and move.picking_id and not move.inventory_id and \
+                    move.picking_id.picking_type_code == 'internal':
+                col_count = 8
+                quantity = - move.quantity_done
+                qty_on_hand -= move.quantity_done
+                # print('Internal 2++++++++++')
+            elif not self.warehouse_id and move.location_id.id in all_locations.ids and move.location_dest_id.id in \
+                    all_locations.ids and move.picking_id and not move.inventory_id and \
+                    move.picking_id.picking_type_code == 'internal':
+                col_count = 8
+                # qty_on_hand -= move.quantity_done
+                # print('Internal 3++++++++++')
+            # elif not self.warehouse_id and move.location_id.id in all_locations.ids and move.location_dest_id.id not in \
+            #          all_locations.ids and move.picking_id and not move.inventory_id and \
+            #          move.picking_id.picking_type_code == 'internal':
+            #     col_count = 8
+            #     quantity = - quantity
+            #     qty_on_hand += quantity
+            # Adjustement
+            elif move.location_id.id not in all_locations.ids and move.location_dest_id.id in \
+                    all_locations.ids and not move.picking_id and move.inventory_id:
+                col_count = 9
+                qty_on_hand += move.quantity_done
+                # print('Adjustment IN ++++++++++')
+            elif move.location_id.id in all_locations.ids and move.location_dest_id.id not in \
+                    all_locations.ids and not move.picking_id and move.inventory_id:
+                col_count = 9
+                quantity = - move.quantity_done
+                qty_on_hand -= move.quantity_done
+                # print('Adjustment OUT ++++++++++')
+            # Production
+            elif move.location_id.id not in all_locations.ids and move.location_dest_id.id in \
+                    all_locations.ids and not move.picking_id and not move.inventory_id:
+                col_count = 10
+                qty_on_hand += move.quantity_done
+                # print('Production IN ++++++++++')
+            elif move.location_id.id in all_locations.ids and move.location_dest_id.id not in \
+                    all_locations.ids and not move.picking_id and not move.inventory_id:
+                col_count = 10
+                quantity = - move.quantity_done
+                qty_on_hand -= move.quantity_done
+                # print('Production OUT ++++++++++')
+            if col_count == 3:
+                # print('move.reference...', move.reference)
+                raise UserWarning(_('No Condition applied !'))
+        return qty_on_hand
+
     def detailed_movement_report(self):
+        end_date = datetime(self.to_date.year, self.to_date.month, self.to_date.day) + timedelta(hours=23, minutes=59, seconds=59)
+        print("end DAte", end_date)
         temp_dir = tempfile.gettempdir() or '/tmp'
         f_name = os.path.join(temp_dir, 'stock_report.xlsx')
         workbook = xlsxwriter.Workbook(f_name)
@@ -582,11 +711,14 @@ class daily_stock_report(models.TransientModel):
         else:
             warehouse_name = 'ALL'
         worksheet.write(row + 1, col + 2, warehouse_name, style_data3)
-        worksheet.write(row, col + 3, 'Date From', style_header2)
+        worksheet.write(row, col + 3, 'Location', style_header2)
+        if self.location_id:
+            worksheet.write(row + 1, col + 3, self.location_id.location_id.name+'/'+self.location_id.name or ' ')
+        worksheet.write(row, col + 4, 'Date From', style_header2)
         if self.from_date:
-            worksheet.write_datetime(row + 1, col + 3, self.from_date or ' ', date_format)
-        worksheet.write(row, col + 4, 'Date To', style_header2)
-        worksheet.write(row + 1, col + 4, self.to_date or ' ', date_format)
+            worksheet.write_datetime(row + 1, col + 4, self.from_date or ' ', date_format)
+        worksheet.write(row, col + 5, 'Date To', style_header2)
+        worksheet.write(row + 1, col + 5, self.to_date or ' ', date_format)
         # worksheet.write(row, col + 5, ' ', style_header2)
         # worksheet.write(row, col + 6, ' ', style_header2)
         # worksheet.write(row, col + 7, ' ', style_header2)
@@ -617,17 +749,37 @@ class daily_stock_report(models.TransientModel):
         locations = locations.sorted(lambda l: l.level)
         all_locations = self.get_child_locations(locations)
         print('all_locations...', all_locations)
-        domain = [('company_id', '=', self.company_id.id), ('date', '<=', self.to_date),
+        domain = [('company_id', '=', self.company_id.id), ('date', '<=', end_date),
                   ('product_id', '=', self.product_id.id), ('state', '=', 'done')]
         # if self.warehouse_id:
         #     domain += [('warehouse_id', '=', self.warehouse_id.id)]
         qty_on_hand = 0
         if self.from_date:
-            previous_date = datetime.strftime((datetime.strptime(
-                str(self.from_date), DEFAULT_SERVER_DATE_FORMAT) - timedelta(days=1)),
-                                              DEFAULT_SERVER_DATE_FORMAT)
-            qty_available = self.product_id.with_context(to_date=previous_date).qty_available
-            print('qty_available....', qty_available)
+            # print('from dayte', self.from_date)
+            # previous_date = self.get_localised_date(self.from_date)
+            my_datetime = datetime(self.from_date.year, self.from_date.month, self.from_date.day)
+            print('my_datetime', my_datetime)
+            previous_date = datetime.strptime(
+                str(my_datetime), DEFAULT_SERVER_DATETIME_FORMAT) - timedelta(days=1)
+            # correct_date_time = previous_date + timedelta(hours=3)
+            # print('previous_date..', previous_date)
+            # previous_date1 = self.get_localised_date(previous_date)
+            print('previous_date..', previous_date)
+            qty_available = self.get_opening_stock(domain, all_locations, previous_date)
+            # print('qty_available...', qty_available)
+            location = False
+            if self.location_id:
+                location = self.location_id
+            elif self.warehouse_id:
+                location = self.warehouse_id.lot_stock_id
+            else:
+                location = self.env['stock.location'].search([
+                    ('usage', '=', 'internal'), '|', ('company_id', '=', self.company_id.id),
+                    ('company_id', '=', False)], order='level asc')
+            opening_dict = self.get_product_available(self.product_id, to_date=previous_date,
+                                                      location=location)
+            qty_available = opening_dict.get('balance', 0.0)
+            # print('qty_available..2.', qty_available)
             qty_on_hand += qty_available
             worksheet.write(row, col, '', style_data3)
             worksheet.write(row, col + 1, self.from_date or ' ', date_format)
@@ -644,15 +796,18 @@ class daily_stock_report(models.TransientModel):
             worksheet.write(row, col + 12, qty_available or 0, style_data3)
             worksheet.write(row, col + 13, self.product_id.standard_price or 0, style_data3)
             row += 1
-            domain += [('date', '>=', self.from_date)]
+            # domain += [('date', '>=', self.from_date)]
+            domain += [('date', '>=', my_datetime)]
+        # print('domain...', domain)
         stocks = self.env['stock.move'].search(domain, order='date asc')
-        print('stocks...', stocks)
+        # print('stocks...', stocks)
         for move in stocks:
+            col = 0
             if self.warehouse_id and move.warehouse_id and self.warehouse_id.id != move.warehouse_id.id:
-                print('skiping Warehouse..id, reference...', move.id, move.reference)
+                # print('skiping Warehouse..id, reference...', move.id, move.reference)
                 continue
             if move.location_id.id not in all_locations.ids and move.location_dest_id.id not in all_locations.ids:
-                print('skiping Location..id, reference...', move.id, move.reference)
+                # print('skiping Location..id, reference...', move.id, move.reference)
                 continue
             worksheet.write(row, col, move.reference, style_data3)
             worksheet.write(row, col + 1, move.date or ' ', date_format)
@@ -670,8 +825,8 @@ class daily_stock_report(models.TransientModel):
             worksheet.write(row, col + 13, '', style_data3)
             col_count = 3
             quantity = move.quantity_done
-            print('move.reference quantity....', move.id, move.reference, quantity)
-            print('move.location....', move.location_id, move.location_dest_id)
+            # print('move.reference quantity....', move.id, move.reference, quantity)
+            # print('move.location....', move.location_id, move.location_dest_id)
             # Purchase
             if move.location_id.id not in all_locations.ids and move.location_dest_id.id in \
                     all_locations.ids and move.picking_id and not move.inventory_id and \
@@ -689,14 +844,14 @@ class daily_stock_report(models.TransientModel):
                 print('Purchase Return++++++++++')
             # Sales
             elif move.location_id.id in all_locations.ids and move.location_dest_id.id not in \
-                     all_locations.ids and move.picking_id and not move.inventory_id and \
-                     not move.origin_returned_move_id and move.picking_id.picking_type_code == 'outgoing':
+                    all_locations.ids and move.picking_id and not move.inventory_id and \
+                    not move.origin_returned_move_id and move.picking_id.picking_type_code == 'outgoing':
                 col_count = 6
                 qty_on_hand -= move.quantity_done
                 print('Sales++++++++++')
             elif move.location_id.id not in all_locations.ids and move.location_dest_id.id in \
-                     all_locations.ids and move.picking_id and not move.inventory_id and \
-                     move.origin_returned_move_id and \
+                    all_locations.ids and move.picking_id and not move.inventory_id and \
+                    move.origin_returned_move_id and \
                     move.origin_returned_move_id.picking_id.picking_type_code == 'outgoing' \
                     and move.picking_id.picking_type_code == 'incoming':
                 col_count = 7
@@ -704,22 +859,22 @@ class daily_stock_report(models.TransientModel):
                 print('Sale Return++++++++++')
             # Internal Transfer
             elif self.warehouse_id and move.location_id.id not in all_locations.ids and move.location_dest_id.id in \
-                     all_locations.ids and move.picking_id and not move.inventory_id and \
-                     move.picking_id.picking_type_code == 'internal':
+                    all_locations.ids and move.picking_id and not move.inventory_id and \
+                    move.picking_id.picking_type_code == 'internal':
                 col_count = 8
                 quantity = move.quantity_done
                 qty_on_hand += move.quantity_done
                 print('Internal 1 ++++++++++')
             elif self.warehouse_id and move.location_id.id in all_locations.ids and move.location_dest_id.id not in \
-                     all_locations.ids and move.picking_id and not move.inventory_id and \
-                     move.picking_id.picking_type_code == 'internal':
+                    all_locations.ids and move.picking_id and not move.inventory_id and \
+                    move.picking_id.picking_type_code == 'internal':
                 col_count = 8
                 quantity = - move.quantity_done
                 qty_on_hand -= move.quantity_done
                 print('Internal 2++++++++++')
             elif not self.warehouse_id and move.location_id.id in all_locations.ids and move.location_dest_id.id in \
-                     all_locations.ids and move.picking_id and not move.inventory_id and \
-                     move.picking_id.picking_type_code == 'internal':
+                    all_locations.ids and move.picking_id and not move.inventory_id and \
+                    move.picking_id.picking_type_code == 'internal':
                 col_count = 8
                 # qty_on_hand -= move.quantity_done
                 print('Internal 3++++++++++')
@@ -731,24 +886,24 @@ class daily_stock_report(models.TransientModel):
             #     qty_on_hand += quantity
             # Adjustement
             elif move.location_id.id not in all_locations.ids and move.location_dest_id.id in \
-                     all_locations.ids and not move.picking_id and move.inventory_id:
+                    all_locations.ids and not move.picking_id and move.inventory_id:
                 col_count = 9
                 qty_on_hand += move.quantity_done
                 print('Adjustment IN ++++++++++')
             elif move.location_id.id in all_locations.ids and move.location_dest_id.id not in \
-                     all_locations.ids and not move.picking_id and move.inventory_id:
+                    all_locations.ids and not move.picking_id and move.inventory_id:
                 col_count = 9
                 quantity = - move.quantity_done
                 qty_on_hand -= move.quantity_done
                 print('Adjustment OUT ++++++++++')
             # Production
             elif move.location_id.id not in all_locations.ids and move.location_dest_id.id in \
-                     all_locations.ids and not move.picking_id and not move.inventory_id:
+                    all_locations.ids and not move.picking_id and not move.inventory_id:
                 col_count = 10
                 qty_on_hand += move.quantity_done
                 print('Production IN ++++++++++')
             elif move.location_id.id in all_locations.ids and move.location_dest_id.id not in \
-                     all_locations.ids and not move.picking_id and not move.inventory_id:
+                    all_locations.ids and not move.picking_id and not move.inventory_id:
                 col_count = 10
                 quantity = - move.quantity_done
                 qty_on_hand -= move.quantity_done
@@ -778,3 +933,27 @@ class daily_stock_report(models.TransientModel):
             'res_id': out_wizard.id,
             'views': [[view_id, 'form']],
         }
+
+    def get_localised_date(self, dt, days=0, return_datetime=True):
+        ''' Function return next localized date based on days passed from source.
+        -1 for yesterday, +1 for tomorrow, 0 for today '''
+        print("dt++++++++++++++++++++++===============+++++++++++++++++", dt)
+        # Timezone conversion
+        user = self.env['res.users'].browse(self._uid)
+        tz = False
+        if user.tz:
+            tz = pytz.timezone(user.tz)
+        else:
+            tz = pytz.timezone('Etc/GMT+3') or pytz.utc
+        # tradeDay = day.trade_date + timedelta(hours=6)
+        # td1 = pytz.timezone("Europe/London").localize(tradeDay, is_dst=None)
+        # tradeDay = td1.astimezone(pytz.utc)
+        # Finding next date(Localized) based on days passed
+        next_date = dt + timedelta(days=days)
+        next_date = pytz.utc.localize(next_date, is_dst=None)
+        next_date = datetime.strptime(next_date.astimezone(tz).strftime(
+            DEFAULT_SERVER_DATETIME_FORMAT), DEFAULT_SERVER_DATETIME_FORMAT)
+        print("12222222222222222222222222222222222", next_date)
+        if return_datetime:
+            return next_date
+        return next_date.strftime(DEFAULT_SERVER_DATE_FORMAT)
