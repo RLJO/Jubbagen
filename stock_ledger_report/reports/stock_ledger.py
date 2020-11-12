@@ -7,7 +7,7 @@ from odoo.osv import expression
 
 class ReportStockLedger(models.AbstractModel):
     _inherit = 'account.report'
-    _name = 'report.stock.ledger'
+    _name = 'stock_ledger_report.stock.ledger'
     _description = "Stock Ledger"
 
     filter_date = {'mode': 'range', 'filter': 'today'}
