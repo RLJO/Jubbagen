@@ -3,7 +3,7 @@
         <record id="action_stock_ledger" model="ir.actions.client">
             <field name="name">Stock ledger</field>
             <field name="tag">account_report</field>
-            <field name="context" eval="{'model': 'report.stock.ledger'}"/>
+            <field name="context" eval="{'model': 'stock_ledger_report.stock.ledger'}"/>
         </record>
 
         <menuitem id="menu_action_stock_ledger"

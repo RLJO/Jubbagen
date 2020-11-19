@@ -7,7 +7,7 @@ from odoo.osv import expression
 
 class ReportStockLedger(models.AbstractModel):
     _inherit = 'account.report'
-    _name = 'report.stock.ledger'
+    _name = 'stock_ledger_report.stock.ledger'
     _description = "Stock Ledger"
 
     filter_date = {'mode': 'range', 'filter': 'today'}
@@ -275,6 +275,7 @@ class ReportStockLedger(models.AbstractModel):
 
     @api.model
     def _do_query(self, options, expanded_partner=None):
+        options['dest'] = False
         d = {}
         from_ids = self.env['stock.move'].search(self._get_options_domain(options))
         # sm.picking_type_id, sm.name, sm.product_uom_qty, sm.date, sm.reference, sm.product_uom, sm.product_id
@@ -374,7 +375,7 @@ class ReportStockLedger(models.AbstractModel):
                     qty = move[0].quantity_done * -1 if move[0].location_dest_id.id != current_location.id else move[
                         0].quantity_done
                     columns = [
-                        {'name': move[0].picking_type_id.name},
+                        {'name': 'inventory adjustment' if not move[0].picking_type_id and move[0].inventory_id else move[0].picking_type_id.name},
                         {'name': move[0].picking_id.partner_id.name},
                         {'name': move[0].date},
                         {'name': move[0].reference},
